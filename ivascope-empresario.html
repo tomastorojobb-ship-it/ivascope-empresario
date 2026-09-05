@@ -938,6 +938,14 @@ details.disclaimer > p { margin-top: 9px; }
       </div>
 
       <div class="card">
+        <div class="head"><h2 style="font-size:16px;">Presupuestos mensuales</h2><span class="hint">Ponle un tope a cada categoría y te aviso si te acercas</span></div>
+        <div class="barlist" id="presupuestoBars"></div>
+        <div id="presupuestoEmpty" class="empty" style="padding:16px 10px;">Todavía no le pones tope a ninguna categoría.</div>
+        <button class="btn btn-ghost btn-sm" id="presupuestoConfigBtn" type="button" style="margin-top:10px;">⚙️ Configurar topes por categoría</button>
+        <div id="presupuestoConfig" hidden style="margin-top:12px;"></div>
+      </div>
+
+      <div class="card">
         <div class="head"><h2 style="font-size:16px;">Cosas que conviene que sepas</h2></div>
         <div class="stack" id="insights" style="gap:10px;"></div>
       </div>
@@ -1178,9 +1186,11 @@ details.disclaimer > p { margin-top: 9px; }
             </div>
           </div>
           <div class="actions">
+            <button class="btn" id="realF29Cam" type="button">📷 Tomar foto</button>
             <button class="btn" id="realF29Adjuntar" type="button">📎 Adjuntar formulario</button>
             <button class="btn btn-primary" id="realF29Guardar" type="button">Guardar F29 real</button>
           </div>
+          <input type="file" id="realF29CamFile" accept="image/*" capture="environment" class="sr" />
           <input type="file" id="realF29File" accept="image/*,application/pdf" class="sr" />
           <div id="realF29Estado"></div>
         </div>
@@ -1207,9 +1217,11 @@ details.disclaimer > p { margin-top: 9px; }
             </div>
           </div>
           <div class="actions">
+            <button class="btn" id="realF22Cam" type="button">📷 Tomar foto</button>
             <button class="btn" id="realF22Adjuntar" type="button">📎 Adjuntar formulario</button>
             <button class="btn btn-primary" id="realF22Guardar" type="button">Guardar F22 real</button>
           </div>
+          <input type="file" id="realF22CamFile" accept="image/*" capture="environment" class="sr" />
           <input type="file" id="realF22File" accept="image/*,application/pdf" class="sr" />
           <div id="realF22Estado"></div>
         </div>
@@ -1428,6 +1440,7 @@ function toast(msg) {
 var IVA_TASA = 19;                 // DL 825, tasa general
 var UTM = 71649;                   // referencial, agosto 2026
 var UTA = UTM * 12;
+var UF = 40879;                    // referencial, septiembre 2026
 var RETENCION_HONORARIOS = 15.25;  // tasa 2026
 
 /* Tabla progresiva de los artículos 43 y 52 de la Ley de la Renta.
@@ -1705,7 +1718,8 @@ var ESPECIALES = [
   // --- Retenciones por cambio de sujeto (F29 códigos 39 y 554) ---
   { id: "cs_ganado", rubro: "cambio_sujeto", label: "Ganado vivo — retención 8%", tasa: 8, tipo: "retencion" },
   { id: "cs_arroz", rubro: "cambio_sujeto", label: "Arroz — retención 4%", tasa: 4, tipo: "retencion" },
-  { id: "cs_berries", rubro: "cambio_sujeto", label: "Berries — retención 5%", tasa: 5, tipo: "retencion" },
+  { id: "cs_berries", rubro: "cambio_sujeto", label: "Berries — retención 14%", tasa: 14, tipo: "retencion",
+    nota: "Resolución Ex. SII N°11 de 2025: retienes 14% (el vendedor declara el otro 5% por su cuenta). Solo aplica si acumulaste 300 UTM o más en compras de berries desde 2023, o tienes 300 UTM o más de capital propio. Supermercados y almacenes/minimarkets quedan excluidos de retener." },
   { id: "cs_legumbres", rubro: "cambio_sujeto", label: "Legumbres — retención 10%", tasa: 10, tipo: "retencion" },
   { id: "cs_madera", rubro: "cambio_sujeto", label: "Madera — retención 8%", tasa: 8, tipo: "retencion" },
   { id: "cs_hidro", rubro: "cambio_sujeto", label: "Especies hidrobiológicas — retención 10%", tasa: 10, tipo: "retencion" },
@@ -1714,10 +1728,16 @@ var ESPECIALES = [
   { id: "cs_construccion", rubro: "cambio_sujeto", label: "Construcción e instalaciones — retención total 19%", tasa: 19, tipo: "retencion" },
 
   // --- Impuesto específico a los combustibles, Ley 18.502 ---
-  { id: "comb_diesel", rubro: "combustibles", label: "Petróleo diésel (recuperable)", tipo: "diesel", utmM3: 1.5,
-    nota: "Tasa base de 1,5 UTM por metro cúbico. El MEPCO le suma o resta un componente variable cada semana, así que el monto real de tu factura puede diferir." },
+  { id: "comb_diesel_maquinaria", rubro: "combustibles", label: "Diésel para maquinaria (no circula por la calle)", tipo: "diesel_maquinaria", utmM3: 1.5,
+    nota: "Tractores, generadores, maquinaria agrícola o de obra que NO transitan por vías públicas: normalmente 100% recuperable, para cualquier rubro. Ley 21.811: entre el 26-03-2026 y el 30-09-2026 esto baja transitoriamente a 31%, salvo que seas Pro Pyme General o Pro Pyme Transparente (ahí sigue en 100%). Tasa base de 1,5 UTM por metro cúbico; el MEPCO le suma o resta un componente variable cada semana, así que el monto real de tu factura puede diferir." },
+  { id: "comb_diesel_carga", rubro: "combustibles", label: "Diésel para camiones de mi empresa de transporte de carga", tipo: "diesel_carga", utmM3: 1.5,
+    nota: "Solo para camiones de 3.860 kg o más de una empresa de transporte de carga (no pasajeros). No recuperas el 100%: el porcentaje depende de cuánto vendiste el año anterior. Tasa base de 1,5 UTM por metro cúbico." },
   { id: "comb_gasolina", rubro: "combustibles", label: "Gasolina automotriz (no recuperable)", tipo: "gasolina", utmM3: 6,
     nota: "Tasa base de 6 UTM por metro cúbico. La gasolina no da derecho a recuperación: es costo." },
+  { id: "comb_glp_vehicular", rubro: "combustibles", label: "Gas licuado (GLP) para vehículos — autogas (no recuperable)", tipo: "gasolina", utmM3: 1.4,
+    nota: "Tasa base de 1,4 UTM por metro cúbico (Ley 20.765). Como es de consumo vehicular, no da derecho a recuperación: es costo, igual que la gasolina. Ojo: el gas licuado en garrafa para cocina, calefacción o calderas NO tiene este impuesto — a esas compras no les marques impuesto especial." },
+  { id: "comb_gnc_vehicular", rubro: "combustibles", label: "Gas natural comprimido (GNC) para vehículos (no recuperable)", tipo: "gasolina", utmM3: 0.00193,
+    nota: "Tasa base de 1,93 UTM por cada 1.000 metros cúbicos (Ley 20.765). No da derecho a recuperación: es costo, igual que la gasolina." },
 
   // --- Tabaco, DL 828 (informativo: lo paga el fabricante o importador) ---
   { id: "tab_cigarrillos", rubro: "tabaco", label: "Cigarrillos", tipo: "tabaco_info",
@@ -1838,7 +1858,7 @@ var DEFAULT_PERFIL = {
    ven siempre el mismo número. */
 var CIERRE_VACIO = {
   perdidasAnteriores: 0, activoFijo: 0, remuneraciones: 0, capacitacion: 0,
-  donaciones: 0, ppmRealPagado: 0, otrosIngresosDueno: 0, retirosDueno: 0,
+  donaciones: 0, ppmRealPagado: 0, otrosIngresosDueno: 0, retirosDueno: 0, usarIncentivoAhorro: false,
   // Gastos rechazados, separados según cómo los trata el Art. 21:
   art21_inc1: 0,  // afectos al impuesto único de 40% a nivel de empresa
   art21_inc2: 0,  // IDPC, multas e intereses al Fisco: se agregan a la base, sin 40%
@@ -1863,10 +1883,10 @@ var CAMPOS_CIERRE = [
     ayudaSimple: "Bienes nuevos que compraste para trabajar y que te van a durar años. Te dan un descuento directo sobre el impuesto, no sobre la utilidad. No cuentan el software, las viviendas ni los automóviles.",
     ayudaTecnico: "Activo fijo físico adquirido nuevo o terminado de construir en el ejercicio, o en leasing con opción de compra. Excluye software, bienes habitacionales y vehículos de transporte salvo camiones y buses." },
   { id: "remuneraciones", ico: "👥",
-    simple: "¿Cuánto pagaste en sueldos durante el año?",
-    tecnico: "Planilla anual de remuneraciones imponibles",
-    ayudaSimple: "La suma de todos los sueldos del año. Sirve para calcular cuánto puedes recuperar de lo que gastaste en capacitación.",
-    ayudaTecnico: "Base para el tope de la franquicia SENCE: 1% de la planilla imponible anual, con pisos según tamaño." },
+    simple: "¿Cuánto pagaste en sueldos durante el año? (opcional si ya registraste las liquidaciones como documento)",
+    tecnico: "Planilla anual de remuneraciones imponibles (opcional si ya viene de documentos registrados)",
+    ayudaSimple: "Si ya fuiste registrando cada liquidación de sueldo como documento, déjalo en cero: el programa las suma solas. Solo escribe un total acá si no las registraste una por una.",
+    ayudaTecnico: "Base para el tope de la franquicia SENCE: 1% de la planilla imponible anual, con pisos según tamaño. En cero, se usa la suma de los documentos categoría 'sueldos' del ejercicio." },
   { id: "capacitacion", ico: "🎓",
     simple: "¿Hiciste cursos de capacitación para ti o tu equipo?",
     tecnico: "Gasto efectivo en capacitación (franquicia SENCE)",
@@ -1908,6 +1928,12 @@ var CAMPOS_CIERRE = [
     tecnico: "Retiros efectivos del propietario en el ejercicio",
     ayudaSimple: "En tu régimen la empresa paga su propio impuesto, y tú pagas el tuyo solo por la plata que efectivamente sacaste para uso personal (no lo que la empresa ganó y dejaste adentro). Ese retiro lleva un crédito por lo que ya pagó la empresa, así no tributa dos veces.",
     ayudaTecnico: "Retiros o dividendos percibidos por el propietario en el ejercicio (Art. 14 letra A). Se incrementan por el IDPC asociado (Art. 41 A) y tributan en su Global Complementario con crédito, íntegro en 14 D N°3, parcial (65%) en 14 A por la integración parcial.",
+    soloRetiro: true },
+  { id: "usarIncentivoAhorro", ico: "🌱", boolean: true,
+    simple: "¿Quieres usar el incentivo al ahorro (dejar plata invertida paga menos impuesto)?",
+    tecnico: "Optar por el incentivo al ahorro (Art. 14 letra E)",
+    ayudaSimple: "Si dejaste utilidad sin retirar de la empresa, puedes rebajar el impuesto sobre la mitad de esa plata (hasta un tope de 5.000 UF). El resto de tu vida se complica un poco: cuando en el futuro retires esa plata, hay que revertir el beneficio — por ahora el programa solo calcula el ahorro de este año, avísale a tu contador para que lleve el control de los años siguientes.",
+    ayudaTecnico: "Deducción de hasta 50% de la RLI que permanece invertida en la empresa, tope 5.000 UF (Art. 14 letra E, Ley 21.210). Se declara en el código 1432 del Recuadro N°17. El programa no lleva el control del monto diferido para su reverso en ejercicios futuros: requiere seguimiento en el Registro de Rentas Empresariales.",
     soloRetiro: true }
 ];
 
@@ -2233,7 +2259,7 @@ function clienteVacio(nombre) {
   return {
     id: uid(),
     perfil: Object.assign({}, DEFAULT_PERFIL, nombre ? { nombre: nombre } : {}),
-    docs: [], remanentes: {}, cierre: {}, fuentes: {}, reales: { f22: {}, f29: {} }
+    docs: [], remanentes: {}, cierre: {}, fuentes: {}, reales: { f22: {}, f29: {} }, presupuestos: {}
   };
 }
 
@@ -2250,7 +2276,8 @@ function normalizarCliente(c) {
     fuentes: (c && c.fuentes && typeof c.fuentes === "object") ? c.fuentes : {},
     reales: (c && c.reales && typeof c.reales === "object")
       ? { f22: c.reales.f22 || {}, f29: c.reales.f29 || {} }
-      : { f22: {}, f29: {} }
+      : { f22: {}, f29: {} },
+    presupuestos: (c && c.presupuestos && typeof c.presupuestos === "object") ? c.presupuestos : {}
   };
 }
 
@@ -2723,13 +2750,37 @@ function especialesDisponibles() {
    Devuelve el monto y cómo debe tratarse en el F29. */
 function montoEspecial(esp, neto, litros) {
   if (!esp) return 0;
-  if (esp.tipo === "diesel" || esp.tipo === "gasolina") {
+  if (esp.tipo === "diesel_maquinaria" || esp.tipo === "diesel_carga" || esp.tipo === "gasolina") {
     // El impuesto va en UTM por metro cúbico: 1.000 litros = 1 m³.
     var m3 = (Number(litros) || 0) / 1000;
     return m3 * esp.utmM3 * UTM;
   }
   if (esp.tipo === "tabaco_info") return 0; // lo entera el fabricante, no el comercio
   return (Number(neto) || 0) * (esp.tasa / 100);
+}
+
+/* Recuperación del impuesto al diésel para camiones de transporte de carga
+   (Ley 18.502, Art. 7°, modif. Ley 21.755): el % depende de cuánto vendió
+   la empresa el año calendario anterior, no es un 100% fijo como en la
+   maquinaria que no circula por vías públicas. Vigente hasta el 31-12-2026. */
+function tasaRecuperacionDiesel(ventasUF) {
+  var v = Number(ventasUF) || 0;
+  if (v <= 2400) return 80;
+  if (v <= 6000) return 70;
+  if (v <= 20000) return 52.5;
+  return 31;
+}
+
+/* Ley 21.811 del 26-03-2026 (emergencia energética): restringe transitoriamente
+   a 31% la recuperación del diésel de maquinaria (no camiones de carga, que se
+   rigen aparte por la Ley 19.764 y no tienen esta restricción). No aplica a
+   Pro Pyme General (14D N°3) ni Pro Pyme Transparente (14D N°8), que mantienen
+   el 100%. Rige entre el 26-03-2026 y el 30-09-2026, según la fecha de compra. */
+function tasaRecuperacionDieselMaquinaria(fecha) {
+  var enRestriccion = fecha >= "2026-03-26" && fecha <= "2026-09-30";
+  var exentoPorRegimen = store.perfil.regimen === "14D3" || store.perfil.regimen === "14D8";
+  if (enRestriccion && !exentoPorRegimen) return 31;
+  return 100;
 }
 
 /* El PPM se calcula distinto según el régimen:
@@ -2794,6 +2845,7 @@ function calcIva(mesKey) {
     supermercadoIva: 0, supermercadoN: 0, exportaciones: 0,
     // Impuestos especiales
     ilaDebito: 0, ilaCredito: 0, ilaCosto: 0,
+    ilaVentasFactura: 0, ilaVentasFinal: 0, ilaCompraBruta: 0, proporcionIla: 0,
     anticipoRecuperable: 0, anticipoRecargado: 0,
     retenidoPorTerceros: 0, retencionCambioSujeto: 0,
     dieselRecuperable: 0, combustibleCosto: 0
@@ -2817,7 +2869,14 @@ function calcIva(mesKey) {
       var eV = especialById(d.especial);
       if (eV) {
         var mV = montoEspecial(eV, d.neto, d.litros) * s;
-        if (eV.tipo === "ila") r.ilaDebito += mV;
+        if (eV.tipo === "ila") {
+          r.ilaDebito += mV;
+          // El ILA solo se recarga y se debita en ventas a otro vendedor (factura);
+          // al consumidor final (boleta) va incluido en el precio, sin recargo aparte.
+          // Uso esto como proxy de "a quién le vendo" para prorratear el crédito.
+          if (d.tipo === "boleta_venta") r.ilaVentasFinal += (d.neto || 0) * s;
+          else r.ilaVentasFactura += (d.neto || 0) * s;
+        }
         else if (eV.tipo === "anticipo") r.anticipoRecargado += mV;
         else if (eV.tipo === "retencion") {
           // Cambio de sujeto: el comprador retiene ese IVA y lo entera él,
@@ -2844,23 +2903,49 @@ function calcIva(mesKey) {
       if (eC) {
         var mC = montoEspecial(eC, d.neto, d.litros) * s;
         if (eC.tipo === "ila") {
-          // Solo el distribuidor de primera venta recupera el ILA de sus compras;
-          // para el que solo revende es un costo más dentro del precio.
-          if (store.perfil.primeraVentaBebidas) r.ilaCredito += mC;
-          else r.ilaCosto += mC;
+          // Se reparte en crédito/costo más abajo, según qué porcentaje de tus
+          // ventas de bebidas del mes fue a otros vendedores (factura) vs al
+          // consumidor final (boleta) — así lo pide el SII para el caso mixto.
+          r.ilaCompraBruta += mC;
         } else if (eC.tipo === "anticipo") {
           r.anticipoRecuperable += mC;
         } else if (eC.tipo === "retencion") {
           // Aquí yo soy el agente retenedor: retengo ese IVA y lo entero.
           r.retencionCambioSujeto += mC;
-        } else if (eC.tipo === "diesel") {
-          r.dieselRecuperable += mC;
+        } else if (eC.tipo === "diesel_maquinaria") {
+          // No transita por vías públicas: 100% recuperable, cualquier rubro,
+          // salvo el tope transitorio de la Ley 21.811 (26-03 al 30-09-2026).
+          var tasaMaq = tasaRecuperacionDieselMaquinaria(d.fecha);
+          r.dieselRecuperable += mC * (tasaMaq / 100);
+          if (tasaMaq < 100) r.combustibleCosto += mC * (1 - tasaMaq / 100);
+        } else if (eC.tipo === "diesel_carga") {
+          // Solo empresas de transporte de carga (no pasajeros); el % depende
+          // de las ventas del año anterior, no es 100% como la maquinaria.
+          if (store.perfil.actividad === "transporte_carga") {
+            var tasaDiesel = tasaRecuperacionDiesel(store.perfil.ventasUF);
+            r.dieselRecuperable += mC * (tasaDiesel / 100);
+            r.combustibleCosto += mC * (1 - tasaDiesel / 100);
+          } else {
+            // Sin ser empresa de transporte de carga, este diésel no da derecho a recuperación.
+            r.combustibleCosto += mC;
+          }
         } else if (eC.tipo === "gasolina") {
           r.combustibleCosto += mC;
         }
       }
     }
   });
+  // Prorrateo del crédito ILA (Circular SII N°10/1980): si vendes bebidas
+  // solo a otros negocios, recuperas el 100%; si solo vendes a público,
+  // 0%; si vendes a ambos, el % que recuperas es el % de tus ventas de
+  // bebidas del mes que fue con factura (a otro vendedor).
+  var totalVentasBebidas = r.ilaVentasFactura + r.ilaVentasFinal;
+  r.proporcionIla = totalVentasBebidas > 0
+    ? r.ilaVentasFactura / totalVentasBebidas
+    : (store.perfil.primeraVentaBebidas ? 1 : 0);
+  r.ilaCredito = r.ilaCompraBruta * r.proporcionIla;
+  r.ilaCosto = r.ilaCompraBruta * (1 - r.proporcionIla);
+
   r.retencion = r.honorariosRecibidos * (RETENCION_HONORARIOS / 100);
 
   r.remanente = Number(store.remanentes[mesKey] || 0);
@@ -2938,7 +3023,13 @@ function calcRenta(ano) {
 
   // Créditos que se restan del impuesto, no de la base.
   r.credito33bis = creditoActivoFijo(aj.activoFijo, store.perfil.ventasUF);
-  r.creditoSence = creditoCapacitacion(aj.capacitacion, aj.remuneraciones);
+  // Remuneraciones: si las escribiste a mano en el cierre, se usa esa; si no,
+  // se suman solas desde los documentos de sueldos que ya registraste. Nunca
+  // hay que escribir el mismo dato dos veces.
+  r.remuneracionesReg = calcStats(ano).porCategoria.sueldos || 0;
+  r.remuneracionesUsadas = Number(aj.remuneraciones) || r.remuneracionesReg;
+  r.usaRemuneracionesReg = !Number(aj.remuneraciones) && r.remuneracionesReg > 0;
+  r.creditoSence = creditoCapacitacion(aj.capacitacion, r.remuneracionesUsadas);
   r.creditoDonaciones = Number(aj.donaciones) || 0;
   r.creditosEspeciales = r.credito33bis + r.creditoSence + r.creditoDonaciones;
 
@@ -3011,7 +3102,19 @@ function calcRenta(ano) {
     r.creditos = r.ppmPagado + r.creditosEspeciales;
     r.saldo = r.impuestoPersonal - r.creditos;
   } else {
-    r.idpc = r.base * (r.tasaIdpc / 100);
+    /* Incentivo al ahorro (Art. 14 letra E, Ley 21.210): 50% de la utilidad
+       que queda invertida en la empresa (lo que no se retiró), con tope de
+       5.000 UF. Es opcional —el dueño elige si lo usa— y rebaja la base
+       sobre la que se calcula el IDPC de este año. Ojo: cuando esa plata se
+       retire en un ejercicio futuro, la ley obliga a revertir el beneficio;
+       el programa no lleva ese control multi-año todavía (queda para el
+       contador, igual que la corrección monetaria de 14 A). */
+    var noRetirado = Math.max(r.base - (Number(aj.retirosDueno) || 0), 0);
+    r.incentivoAhorroDisponible = Math.min(noRetirado * 0.5, 5000 * UF);
+    r.usaIncentivoAhorro = !!aj.usarIncentivoAhorro;
+    r.incentivoAhorro = r.usaIncentivoAhorro ? r.incentivoAhorroDisponible : 0;
+    r.baseConIncentivo = Math.max(r.base - r.incentivoAhorro, 0);
+    r.idpc = r.baseConIncentivo * (r.tasaIdpc / 100);
     // 14 A y 14 D N°3: el dueño tributa solo por lo que retiró de verdad, no
     // por toda la utilidad. Crédito íntegro (100%) en 14 D N°3; en 14 A solo
     // 65% por la integración parcial (el resto no es crédito de nadie).
@@ -3058,6 +3161,18 @@ function calcStats(ano) {
   s.resultado = s.ingresos - s.gastos;
   s.margen = s.ingresos > 0 ? (s.resultado / s.ingresos) * 100 : 0;
   return s;
+}
+
+/* Gasto del mes en curso, agrupado por categoría — para comparar contra
+   los presupuestos que el usuario le puso a cada una. */
+function gastosMesPorCategoria(mesKey) {
+  var porCat = {};
+  docsDeMes(mesKey).forEach(function (d) {
+    if (d.dir !== "compra") return;
+    var c = d.categoria || "otros";
+    porCat[c] = (porCat[c] || 0) + d.neto * (d.signo || 1);
+  });
+  return porCat;
 }
 
 function proximoF29() {
@@ -3400,8 +3515,8 @@ function renderRubrosNotas() {
   if (tieneRubro("bebidas")) {
     h += '<label class="check" for="fPrimeraVenta" style="margin-top:11px;">' +
       '<input type="checkbox" id="fPrimeraVenta"' + (store.perfil.primeraVentaBebidas ? ' checked' : '') + ' />' +
-      '<span><b>Soy productor, importador o distribuidor de bebidas</b>' +
-      '<small>Márcalo solo si tú haces la primera venta y recargas el ILA. Si compras las bebidas ya con el impuesto incluido para revenderlas, déjalo sin marcar: ahí el ILA es parte de tu costo.</small></span></label>';
+      '<span><b>Le vendo bebidas a otros negocios (no solo al público)</b>' +
+      '<small>En cuanto registres ventas de bebidas, calculo automáticamente qué parte del ILA de tus compras recuperas, según cuánto vendiste con factura (a otro negocio) versus boleta (a público) ese mes — es la regla del SII para quien vende a ambos. Esta casilla solo se usa como respaldo mientras no tengas ninguna venta de bebidas registrada en el período.</small></span></label>';
   }
   $("rubrosNotas").innerHTML = h;
 
@@ -3697,6 +3812,18 @@ function renderIva() {
   if (r.dieselRecuperable > 0) {
     h += '<div class="r"><span>Impuesto específico al diésel recuperable <b style="color:var(--muted);font-weight:400;">cód. 742/743</b></span>' +
       '<span class="v">−' + money(r.dieselRecuperable) + '</span></div>';
+    if (store.perfil.actividad === "transporte_carga") {
+      h += '<div class="r"><span style="font-size:11.5px;">↳ tramo transporte de carga: ' + pctTxt(tasaRecuperacionDiesel(store.perfil.ventasUF)) +
+        ' según tus ' + (store.perfil.ventasUF || 0).toLocaleString("es-CL") + ' UF de ventas del año anterior</span><span class="v" style="font-size:11.5px;">&nbsp;</span></div>';
+    }
+    var tasaMaqMes = tasaRecuperacionDieselMaquinaria(mes + "-15");
+    if (tasaMaqMes < 100) {
+      h += '<div class="r"><span style="font-size:11.5px;">↳ diésel de maquinaria al ' + pctTxt(tasaMaqMes) +
+        ' por la restricción transitoria de la Ley 21.811 (hasta el 30-09-2026)</span><span class="v" style="font-size:11.5px;">&nbsp;</span></div>';
+    }
+  }
+  if (r.combustibleCosto > 0) {
+    h += '<div class="r"><span style="font-size:11.5px;">↳ diésel que no da derecho a recuperación (queda como costo)</span><span class="v" style="font-size:11.5px;">' + money(r.combustibleCosto) + '</span></div>';
   }
   if (r.supermercadoN) {
     h += '<div class="r"><span style="font-size:11.5px;">↳ de supermercados (cód. 761/762)</span><span class="v" style="font-size:11.5px;">' + money(r.supermercadoIva) + ' · ' + r.supermercadoN + ' doc.</span></div>';
@@ -3710,10 +3837,15 @@ function renderIva() {
     h += '<div class="r sum"><span>IVA a pagar</span><span class="v">' + money(r.ivaAPagar) + '</span></div>';
   }
   // --- Impuestos especiales ---
-  if (r.ilaDebito > 0 || r.ilaCredito > 0) {
+  if (r.ilaDebito > 0 || r.ilaCompraBruta > 0) {
     h += '<div class="sep"></div>';
     h += '<div class="r"><span>ILA recargado en tus ventas</span><span class="v">' + money(r.ilaDebito) + '</span></div>';
-    if (r.ilaCredito > 0) h += '<div class="r"><span>ILA soportado en tus compras</span><span class="v">−' + money(r.ilaCredito) + '</span></div>';
+    if (r.ilaCompraBruta > 0) {
+      h += '<div class="r"><span style="font-size:11.5px;">↳ recuperas ' + pctTxt(r.proporcionIla * 100) +
+        ' de lo pagado en compras (' + pctTxt(r.proporcionIla * 100) + ' de tus ventas de bebidas fue con factura, a otro negocio)</span><span class="v" style="font-size:11.5px;">&nbsp;</span></div>';
+      h += '<div class="r"><span>ILA soportado en tus compras</span><span class="v">−' + money(r.ilaCredito) + '</span></div>';
+      if (r.ilaCosto > 0) h += '<div class="r"><span style="font-size:11.5px;">↳ el resto (' + money(r.ilaCosto) + ') queda como costo, no se declara</span><span class="v" style="font-size:11.5px;">&nbsp;</span></div>';
+    }
     h += '<div class="r sum"><span>Impuesto Adicional a las Bebidas a pagar</span><span class="v">' + money(r.ilaAPagar) + '</span></div>';
   }
   if (r.anticipoRecargado > 0) {
@@ -3982,6 +4114,53 @@ function renderStats() {
   $("insights").innerHTML = ins.map(function (x) {
     return '<div class="insight"><span class="ico">' + x.i + '</span><span>' + x.t + '</span></div>';
   }).join("");
+
+  renderPresupuestos();
+}
+
+/* Presupuestos mensuales por categoría: le pones un tope a cada una y acá
+   se compara contra lo que llevas gastado este mes, con aviso si te acercas
+   o te pasaste. Solo se muestran las categorías que tienen tope puesto. */
+function renderPresupuestos() {
+  var mes = monthKey(todayISO());
+  var gastado = gastosMesPorCategoria(mes);
+  var presu = store.presupuestos || {};
+  var activos = CATEGORIAS.filter(function (c) { return Number(presu[c.id]) > 0; });
+
+  if (!activos.length) {
+    $("presupuestoEmpty").style.display = "block";
+    $("presupuestoBars").innerHTML = "";
+  } else {
+    $("presupuestoEmpty").style.display = "none";
+    $("presupuestoBars").innerHTML = activos.map(function (c) {
+      var g = gastado[c.id] || 0;
+      var tope = Number(presu[c.id]);
+      var pct = tope > 0 ? (g / tope) * 100 : 0;
+      var color = pct >= 100 ? "var(--expense)" : (pct >= 80 ? "#d97706" : "var(--income)");
+      var aviso = pct >= 100 ? " · sobre el tope" : (pct >= 80 ? " · cerca del tope" : "");
+      return '<div class="item"><div class="top"><span class="lbl">' + c.ico + ' <em>' + esc(c.label) + '</em></span>' +
+        '<span class="amt">' + money(g) + ' / ' + money(tope) + aviso + '</span></div>' +
+        '<div class="track"><div class="fill" style="width:' + Math.min(100, Math.max(2, pct)) + '%;background:' + color + '"></div></div></div>';
+    }).join("");
+  }
+
+  $("presupuestoConfig").innerHTML = CATEGORIAS.map(function (c) {
+    return '<div class="grid2" style="align-items:center;margin-bottom:6px;">' +
+      '<span style="font-size:12.5px;">' + c.ico + ' ' + esc(c.label) + '</span>' +
+      '<input type="number" min="0" step="1000" placeholder="Sin tope" data-presupuesto="' + c.id + '" value="' + (presu[c.id] || "") + '" />' +
+      '</div>';
+  }).join("") + '<button class="btn btn-primary btn-sm" id="presupuestoGuardar" type="button" style="margin-top:8px;">Guardar topes</button>';
+
+  $("presupuestoGuardar").addEventListener("click", function () {
+    Array.prototype.forEach.call($("presupuestoConfig").querySelectorAll("[data-presupuesto]"), function (inp) {
+      var v = parseFloat(inp.value);
+      var id = inp.getAttribute("data-presupuesto");
+      if (v > 0) store.presupuestos[id] = v; else delete store.presupuestos[id];
+    });
+    save();
+    renderPresupuestos();
+    toast("Topes guardados");
+  });
 }
 
 /* ==============================================================
@@ -4499,16 +4678,24 @@ function renderCierre() {
   $("cierreCampos").innerHTML = campos.map(function (c) {
     var etiqueta = contador ? c.tecnico : c.simple;
     var ayuda = contador ? c.ayudaTecnico : c.ayudaSimple;
-    return '<div>' +
-      '<label for="cie-' + c.id + '">' + c.ico + " " + esc(etiqueta) + '</label>' +
-      '<input type="number" id="cie-' + c.id + '" data-cierre="' + c.id + '" min="0" step="10000" value="' + (Number(aj[c.id]) || 0) + '" />' +
-      '<p class="param-note">' + esc(ayuda) + '</p>' +
-      '</div>';
+    var campo = c.boolean
+      ? '<label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="cie-' + c.id + '" data-cierre-bool="' + c.id + '"' +
+        (aj[c.id] ? " checked" : "") + ' style="width:auto;" />' + c.ico + " " + esc(etiqueta) + "</label>"
+      : '<label for="cie-' + c.id + '">' + c.ico + " " + esc(etiqueta) + '</label>' +
+        '<input type="number" id="cie-' + c.id + '" data-cierre="' + c.id + '" min="0" step="10000" value="' + (Number(aj[c.id]) || 0) + '" />';
+    return '<div>' + campo + '<p class="param-note">' + esc(ayuda) + '</p></div>';
   }).join("");
 
   Array.prototype.forEach.call($("cierreCampos").querySelectorAll("[data-cierre]"), function (inp) {
     inp.addEventListener("input", function () {
       cierreDe(ano)[this.getAttribute("data-cierre")] = parseFloat(this.value) || 0;
+      save();
+      renderCierreResultado(ano);
+    });
+  });
+  Array.prototype.forEach.call($("cierreCampos").querySelectorAll("[data-cierre-bool]"), function (inp) {
+    inp.addEventListener("change", function () {
+      cierreDe(ano)[this.getAttribute("data-cierre-bool")] = this.checked;
       save();
       renderCierreResultado(ano);
     });
@@ -4532,6 +4719,10 @@ function renderCierreResultado(ano) {
     h += '<div class="r"><span>Otras rentas del dueño</span><span class="v">+' + money(r.otrosIngresos) + '</span></div>';
     h += '<div class="r sum"><span>Base del Global Complementario</span><span class="v">' + money(r.baseGlobal) + '</span></div>';
   }
+  if (r.incentivoAhorro) {
+    h += '<div class="r"><span>Incentivo al ahorro (Art. 14 letra E)</span><span class="v">−' + money(r.incentivoAhorro) + '</span></div>';
+    h += '<div class="r sum"><span>Base con el incentivo aplicado</span><span class="v">' + money(r.baseConIncentivo) + '</span></div>';
+  }
   h += '<div class="sep"></div>';
   h += '<div class="r"><span>' + (reg.pagaIdpc ? "Primera Categoría (" + pctTxt(r.tasaIdpc) + ")" : "Impuesto personal") + '</span>' +
     '<span class="v">' + money(reg.pagaIdpc ? r.idpc : r.impuestoPersonal) + '</span></div>';
@@ -4543,7 +4734,14 @@ function renderCierreResultado(ano) {
         '<span class="v" style="font-size:11.5px;">&nbsp;</span></div>';
     }
   }
-  if (r.creditoSence) h += '<div class="r"><span>Crédito capacitación (SENCE)</span><span class="v">−' + money(r.creditoSence) + '</span></div>';
+  if (r.creditoSence) h += '<div class="r"><span>Crédito capacitación (SENCE)' +
+    (r.usaRemuneracionesReg ? '<br /><span class="sub">Tope sobre ' + money(r.remuneracionesUsadas) + ' en sueldos, de tus documentos</span>' : '') +
+    '</span><span class="v">−' + money(r.creditoSence) + '</span></div>';
+  else if (Number(r.ajustes.capacitacion) > 0) {
+    h += '<div class="notice warn"><span class="title">El crédito de capacitación quedó en $0</span>' +
+      'Pusiste ' + money(r.ajustes.capacitacion) + ' en gastos de capacitación, pero el tope de la franquicia SENCE depende de tus remuneraciones ' +
+      'del año, y no encontré ninguna: ni documentos de sueldos registrados, ni un total escrito en "Remuneraciones". Agrega uno de los dos para recuperar este crédito.</div>';
+  }
   if (r.creditoDonaciones) h += '<div class="r"><span>Crédito donaciones</span><span class="v">−' + money(r.creditoDonaciones) + '</span></div>';
   h += '<div class="r"><span>PPM del año' + (r.usaPpmReal ? " (los tuyos)" : " (estimados)") + '</span><span class="v">−' + money(r.ppmPagado) + '</span></div>';
   if (r.retencionSufrida) h += '<div class="r"><span>Retenciones de tus honorarios</span><span class="v">−' + money(r.retencionSufrida) + '</span></div>';
@@ -4551,6 +4749,13 @@ function renderCierreResultado(ano) {
   h += '<div class="r total"><span>' + (r.saldo >= 0 ? "Saldo a pagar" : "Te devuelven") + '</span>' +
     '<span class="v ' + (r.saldo >= 0 ? "due" : "ok") + '">' + money(Math.abs(r.saldo)) + '</span></div>';
   h += '</div>';
+
+  if (r.incentivoAhorroDisponible > 0 && !r.usaIncentivoAhorro) {
+    h += '<div class="notice info"><span class="title">Podrías rebajar más: incentivo al ahorro sin usar</span>' +
+      'Dejaste ' + money(Math.max(r.base - (Number(r.ajustes.retirosDueno) || 0), 0)) + ' sin retirar este año. Podrías rebajar hasta ' +
+      money(r.incentivoAhorroDisponible) + ' de tu base imponible marcando la casilla "Incentivo al ahorro" a la izquierda — ' +
+      'ojo que esa plata queda comprometida: si la retiras en un año futuro, hay que revertir el beneficio.</div>';
+  }
 
   /* Global Complementario del dueño, aparte del saldo de la empresa: son dos
      contribuyentes distintos (tú y tu empresa), así que no se suman en un
@@ -4897,6 +5102,46 @@ function paresConciliacion() {
   return pares.sort(function (a, b) { return String(a.periodo).localeCompare(String(b.periodo)); });
 }
 
+/* Muestra cómo se armó la declaración de un año: de dónde salió cada
+   número, no solo si se acertó o no. Se abre bajo la fila del F22 real. */
+function detalleDeclaracionF22(ano) {
+  var est = calcRenta(Number(ano));
+  var real = store.reales.f22[ano] || {};
+  var stats = calcStats(Number(ano));
+  var cats = Object.keys(stats.porCategoria).map(function (id) {
+    return { cat: catById(id), monto: stats.porCategoria[id] };
+  }).sort(function (a, b) { return b.monto - a.monto; });
+
+  var h = '<div class="receipt" style="font-size:12.5px;">';
+  h += '<div class="r"><span class="title" style="font-weight:600;">Así se armó tu Renta ' + ano + '</span></div>';
+  h += '<div class="r sum"><span>Ingresos del año</span><span class="v">' + money(est.ingresos) + '</span></div>';
+  h += '<div class="r"><span>Gastos deducibles</span><span class="v">−' + money(est.gastos) + '</span></div>';
+  cats.slice(0, 5).forEach(function (c) {
+    h += '<div class="r"><span style="font-size:11.5px;">↳ ' + c.cat.ico + ' ' + esc(c.cat.label) +
+      '</span><span class="v" style="font-size:11.5px;">' + money(c.monto) + '</span></div>';
+  });
+  if (cats.length > 5) {
+    h += '<div class="r"><span style="font-size:11.5px;">↳ y ' + (cats.length - 5) + ' categoría' + (cats.length - 5 === 1 ? "" : "s") + ' más</span><span class="v" style="font-size:11.5px;">&nbsp;</span></div>';
+  }
+  h += '<div class="sep"></div>';
+  h += '<div class="r"><span>Base imponible — estimada</span><span class="v">' + money(est.base) + '</span></div>';
+  if (real.base) h += '<div class="r"><span>Base imponible — declarada</span><span class="v">' + money(real.base) + '</span></div>';
+  h += '<div class="r"><span>Primera Categoría — estimada</span><span class="v">' + money(est.idpc) + '</span></div>';
+  if (real.impuesto) h += '<div class="r"><span>Impuesto — declarado</span><span class="v">' + money(real.impuesto) + '</span></div>';
+  h += '<div class="sep"></div>';
+  h += '<div class="r sum"><span>Saldo — estimado por la app</span><span class="v">' + money(est.saldo) + '</span></div>';
+  h += '<div class="r sum"><span>Saldo — lo que realmente declaraste</span><span class="v">' + money(Number(real.saldo) || 0) + '</span></div>';
+  var mayorGasto = cats[0];
+  if (mayorGasto && stats.gastos > 0) {
+    h += '<div class="notice info" style="margin-top:10px;"><span class="title">Por qué te dio ese número</span>' +
+      'Tu gasto más grande fue ' + mayorGasto.cat.ico + ' ' + esc(mayorGasto.cat.label) + ', con ' + money(mayorGasto.monto) +
+      ' (' + ((mayorGasto.monto / stats.gastos) * 100).toFixed(1).replace(".", ",") + '% de tus gastos deducibles). Entre ingresos y gastos, tu resultado del año fue ' +
+      money(stats.resultado) + '.</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
 function renderConciliacion() {
   var pares = paresConciliacion();
 
@@ -4954,15 +5199,22 @@ function renderConciliacion() {
     $("realesVacio").style.display = "none";
     $("realesBody").innerHTML = pares.map(function (p) {
       var signo = p.desviacion > 0 ? "+" : "";
-      return "<tr>" +
+      var fila = "<tr>" +
         "<td>" + esc(p.etiqueta) + "</td>" +
         '<td><span class="badge neutral">' + p.tipo + "</span></td>" +
         '<td class="num">' + money(p.estimado) + "</td>" +
         '<td class="num">' + money(p.real) + "</td>" +
         '<td class="num" style="color:' + (p.desviacion > 0 ? "var(--expense)" : "var(--income)") + '">' +
           signo + money(p.desviacion) + " · " + signo + p.pct.toFixed(1).replace(".", ",") + "%</td>" +
-        '<td><button class="btn btn-ghost btn-sm" data-borrar-real="' + p.tipo + ":" + p.periodo + '" type="button" aria-label="Eliminar">✕</button></td>' +
+        '<td class="row-acciones">' +
+          (p.tipo === "F22" ? '<button class="btn btn-ghost btn-sm" data-ver-detalle="' + p.periodo + '" type="button">Ver detalle</button>' : "") +
+          '<button class="btn btn-ghost btn-sm" data-borrar-real="' + p.tipo + ":" + p.periodo + '" type="button" aria-label="Eliminar">✕</button>' +
+        "</td>" +
         "</tr>";
+      if (p.tipo === "F22") {
+        fila += '<tr class="fila-detalle" id="detalleF22-' + p.periodo + '" hidden><td colspan="6">' + detalleDeclaracionF22(p.periodo) + '</td></tr>';
+      }
+      return fila;
     }).join("");
 
     Array.prototype.forEach.call($("realesBody").querySelectorAll("[data-borrar-real]"), function (b) {
@@ -4971,6 +5223,14 @@ function renderConciliacion() {
         if (partes[0] === "F29") delete store.reales.f29[partes[1]];
         else delete store.reales.f22[partes[1]];
         save(); renderConciliacion(); toast("Declaración eliminada");
+      });
+    });
+    Array.prototype.forEach.call($("realesBody").querySelectorAll("[data-ver-detalle]"), function (b) {
+      b.addEventListener("click", function () {
+        var fila = $("detalleF22-" + this.getAttribute("data-ver-detalle"));
+        var oculto = fila.hasAttribute("hidden");
+        if (oculto) fila.removeAttribute("hidden"); else fila.setAttribute("hidden", "");
+        this.textContent = oculto ? "Ocultar detalle" : "Ver detalle";
       });
     });
   }
@@ -5031,7 +5291,7 @@ function aplicarEspecial() {
   if (!mostrar) { $("especialNotice").innerHTML = ""; $("litrosWrap").style.display = "none"; return; }
 
   var e = especialById($("dEspecial").value);
-  var esCombustible = !!e && (e.tipo === "diesel" || e.tipo === "gasolina");
+  var esCombustible = !!e && (e.tipo === "diesel_maquinaria" || e.tipo === "diesel_carga" || e.tipo === "gasolina");
   $("litrosWrap").style.display = esCombustible ? "block" : "none";
 
   if (!e) { $("especialNotice").innerHTML = ""; return; }
@@ -5042,18 +5302,35 @@ function aplicarEspecial() {
   var esCompra = t.dir === "compra";
   if (e.tipo === "ila") {
     h += esCompra
-      ? (store.perfil.primeraVentaBebidas
-          ? ' Como declaraste que haces la primera venta, este ILA lo recuperas contra el que recargas en tus ventas.'
-          : ' Como no haces la primera venta, este ILA es parte de tu costo: no lo declaras aparte.')
-      : ' Se recarga sobre el neto, además del 19% de IVA.';
+      ? ' Cuánto de este ILA recuperas depende de a quién le vendes bebidas este mes: lo calculo según el % de tus ventas que fue con factura (a otro negocio) contra boleta (a público).'
+      : (' Se recarga sobre el neto, además del 19% de IVA.' +
+          (t.id === "boleta_venta"
+            ? ' Al ser boleta (venta a público), cuenta como venta "a consumidor final" para el prorrateo de tu crédito.'
+            : ' Al ser factura, cuenta como venta "a otro vendedor" para el prorrateo de tu crédito.'));
   } else if (e.tipo === "anticipo") {
     h += esCompra ? ' Lo recuperas en el código 556 de tu F29.' : ' Lo recargas tú y lo declaras en el F29.';
   } else if (e.tipo === "retencion") {
     h += esCompra
       ? ' Aquí tú eres el agente retenedor: retienes ese IVA al vendedor y lo enteras en tu F29.'
       : ' El comprador te retiene ese IVA y lo entera él, así que sale de tu débito fiscal.';
-  } else if (e.tipo === "diesel") {
-    h += esCompra ? ' Escribe los litros y calculo el monto recuperable (códigos 730, 742 y 743).' : '';
+  } else if (e.tipo === "diesel_maquinaria") {
+    if (esCompra) {
+      var tasaMaqDoc = tasaRecuperacionDieselMaquinaria($("dFecha").value || todayISO());
+      h += tasaMaqDoc === 100
+        ? ' Escribe los litros. Al no circular por la calle, recuperas el 100% (códigos 730, 742 y 743).'
+        : ' Escribe los litros. Por la Ley 21.811 (restricción transitoria hasta el 30-09-2026), recuperas solo ' +
+          pctTxt(tasaMaqDoc) + ' en vez del 100% habitual (códigos 730, 742 y 743); el resto queda como costo.';
+    }
+  } else if (e.tipo === "diesel_carga") {
+    if (esCompra) {
+      if (store.perfil.actividad === "transporte_carga") {
+        h += ' Escribe los litros. Con ' + (store.perfil.ventasUF || 0).toLocaleString("es-CL") +
+          ' UF de ventas el año anterior, recuperas ' + pctTxt(tasaRecuperacionDiesel(store.perfil.ventasUF)) +
+          ' de este impuesto (códigos 730, 742 y 743); el resto queda como costo.';
+      } else {
+        h += ' Esta recuperación es solo para empresas de transporte de carga (no pasajeros). Con tu actividad declarada, este diésel no se recupera: queda como costo.';
+      }
+    }
   }
   h += '</div>';
   $("especialNotice").innerHTML = h;
@@ -5093,11 +5370,20 @@ function onTipoChange() {
   $("retenidoWrap").style.display = (t.id === "honorarios_emitida") ? "block" : "none";
   $("dAfecto").checked = contable && !!t.iva && esContribuyenteIva();
 
+  // El arriendo lleva IVA solo si el inmueble es amoblado o con instalaciones
+  // (Art. 8 letra g). Si esa es tu actividad declarada, parto marcando la
+  // casilla en vez de dejar que tengas que acordarte de hacerlo tú.
+  var esArriendo = t.id === "arriendo_emitido" || t.id === "arriendo_recibido";
+  var arriendoAmoblado = esArriendo && store.perfil.actividad === "arriendo_amoblado";
+  if (arriendoAmoblado) $("dAfecto").checked = true;
+
   // Algunos tipos traen su categoría puesta: arriendo, sueldos, seguros, etc.
   if (t.cat) $("dCategoria").value = t.cat;
 
   $("tipoNotice").innerHTML = t.nota
-    ? '<div class="notice ' + (t.soloRegistro ? "warn" : "info") + '">' + esc(t.nota) + '</div>'
+    ? '<div class="notice ' + (t.soloRegistro ? "warn" : "info") + '">' + esc(t.nota) +
+      (arriendoAmoblado ? ' Como declaraste que tu actividad es arriendo amoblado, te dejé la casilla de IVA marcada de entrada.' : '') +
+      '</div>'
     : "";
 
   aplicarCategoria();
@@ -5178,7 +5464,7 @@ function guardarDoc() {
     total: Math.round(total), neto: neto, iva: iva,
     afecto: afecto,
     especial: e ? e.id : null,
-    litros: (e && (e.tipo === "diesel" || e.tipo === "gasolina")) ? litros : 0,
+    litros: (e && (e.tipo === "diesel_maquinaria" || e.tipo === "diesel_carga" || e.tipo === "gasolina")) ? litros : 0,
     categoria: (t.dir === "compra" && contable) ? $("dCategoria").value : null,
     credito: (t.dir === "compra" && contable) ? $("dCredito").checked : false,
     deducible: (t.dir === "compra" && contable) ? $("dDeducible").checked : false,
@@ -5190,7 +5476,23 @@ function guardarDoc() {
   cerrarModal();
   llenarPeriodos();
   refrescarTodo();
-  toast(t.dir === "venta" ? "Venta registrada" : "Gasto registrado");
+
+  // Si esta compra tiene una categoría con presupuesto mensual puesto,
+  // avisamos de inmediato si con esto te acercas o te pasas del tope.
+  var mensaje = t.dir === "venta" ? "Venta registrada" : "Gasto registrado";
+  var categoriaGuardada = (t.dir === "compra" && contable) ? $("dCategoria").value : null;
+  if (categoriaGuardada && Number(store.presupuestos[categoriaGuardada]) > 0) {
+    var mesDoc = monthKey($("dFecha").value || todayISO());
+    var gastadoCat = gastosMesPorCategoria(mesDoc)[categoriaGuardada] || 0;
+    var tope = Number(store.presupuestos[categoriaGuardada]);
+    var catLabel = catById(categoriaGuardada).label.toLowerCase();
+    if (gastadoCat > tope) {
+      mensaje = "Ojo: ya llevas " + money(gastadoCat) + " en " + catLabel + " este mes, sobre tu tope de " + money(tope) + ".";
+    } else if (gastadoCat >= tope * 0.8) {
+      mensaje = "Vas en " + money(gastadoCat) + " de " + money(tope) + " en " + catLabel + " — te acercas al tope.";
+    }
+  }
+  toast(mensaje);
 }
 
 function leerArchivo(input) {
@@ -5684,8 +5986,19 @@ function init() {
   $("realF22Guardar").addEventListener("click", guardarF22Real);
   $("realF29Adjuntar").addEventListener("click", function () { $("realF29File").click(); });
   $("realF22Adjuntar").addEventListener("click", function () { $("realF22File").click(); });
+  $("realF29Cam").addEventListener("click", function () { $("realF29CamFile").click(); });
+  $("realF22Cam").addEventListener("click", function () { $("realF22CamFile").click(); });
   $("realF29File").addEventListener("change", function () { adjuntarReal(this, "f29", "realF29Estado"); });
   $("realF22File").addEventListener("change", function () { adjuntarReal(this, "f22", "realF22Estado"); });
+  $("realF29CamFile").addEventListener("change", function () { adjuntarReal(this, "f29", "realF29Estado"); });
+  $("realF22CamFile").addEventListener("change", function () { adjuntarReal(this, "f22", "realF22Estado"); });
+
+  // Presupuestos por categoría
+  $("presupuestoConfigBtn").addEventListener("click", function () {
+    var oculto = $("presupuestoConfig").hasAttribute("hidden");
+    if (oculto) $("presupuestoConfig").removeAttribute("hidden"); else $("presupuestoConfig").setAttribute("hidden", "");
+    this.textContent = oculto ? "⚙️ Ocultar topes por categoría" : "⚙️ Configurar topes por categoría";
+  });
   $("borrarReales").addEventListener("click", function () {
     store.reales = { f22: {}, f29: {} };
     save(); renderConciliacion(); renderCierre();
