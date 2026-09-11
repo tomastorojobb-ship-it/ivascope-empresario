@@ -816,6 +816,47 @@ details.disclaimer > p { margin-top: 9px; }
   <section class="panel" id="p-docs">
     <div class="card">
       <div class="head">
+        <h2>Importar desde el SII</h2>
+        <span class="hint">Carga muchos documentos de una vez</span>
+      </div>
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">
+        Para negocios con harto movimiento: sube el archivo que descargas en el sitio del SII
+        (Servicios online → Registro de Compras y Ventas → pestaña Compras o Ventas → botón
+        "Detalle" → exportar CSV). El programa arma cada documento solo — no escribes nada a mano.
+      </p>
+      <div class="grid2">
+        <div>
+          <label for="siiDireccion">¿Qué archivo es?</label>
+          <select id="siiDireccion">
+            <option value="compra">Registro de Compras</option>
+            <option value="venta">Registro de Ventas</option>
+          </select>
+        </div>
+        <div id="siiTipoDocWrap">
+          <label for="siiTipoDoc">Tipo de documento <span class="opt">(solo si el archivo no lo trae solo)</span></label>
+          <select id="siiTipoDoc">
+            <option value="factura_compra">Factura de compra</option>
+            <option value="nd_recibida">Nota de débito recibida</option>
+            <option value="nc_recibida">Nota de crédito recibida</option>
+          </select>
+        </div>
+      </div>
+      <label for="siiArchivo" style="margin-top:10px;">Archivo CSV</label>
+      <input type="file" id="siiArchivo" accept=".csv,text/csv" />
+      <div id="siiAviso"></div>
+      <button class="btn btn-primary btn-sm" id="siiLeerBtn" type="button" style="margin-top:10px;">Leer archivo</button>
+
+      <div id="siiPropuestaCard" style="display:none;margin-top:16px;">
+        <div id="siiResumen" style="font-size:12.5px;color:var(--muted);margin-bottom:10px;"></div>
+        <div id="siiTabla"></div>
+        <div class="actions" style="margin-top:12px;">
+          <button class="btn btn-primary btn-sm" id="siiRegistrar" type="button">Registrar documentos</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="head">
         <h2>Registro de compras y ventas</h2>
         <button class="btn btn-primary btn-sm" id="openAddBtn" type="button">+ Agregar documento</button>
       </div>
@@ -1290,9 +1331,10 @@ details.disclaimer > p { margin-top: 9px; }
     <input type="file" id="fileInput" accept="image/*,application/pdf" class="sr" />
     <div class="thumb" id="thumb"><img id="thumbImg" alt="Documento adjunto" /><div class="cap" id="thumbCap"></div></div>
 
-    <div class="notice info" style="margin-top:12px;">
-      <span class="title">Cómo funciona la foto en este prototipo</span>
-      La foto se guarda junto al documento, pero los montos los escribes tú: este prototipo no lleva lectura automática por IA. Lo que sí hace es <b>adivinar la categoría del gasto</b> a partir del nombre del proveedor que escribas, y avisarte si ese gasto da o no derecho a crédito fiscal.
+    <div id="iaLecturaBox"></div>
+    <div class="notice info" id="iaLecturaFallback" style="margin-top:12px;">
+      <span class="title">Cómo funciona la foto</span>
+      La foto se guarda junto al documento. Si la lectura automática no está disponible ahora, escribe tú los montos abajo: el programa igual <b>adivina la categoría del gasto</b> a partir del nombre del proveedor, y te avisa si ese gasto da o no derecho a crédito fiscal.
     </div>
 
     <div class="subhead">Datos del documento</div>
@@ -1775,6 +1817,293 @@ function detectarCategoria(nombre) {
   return null;
 }
 
+/* ==============================================================
+   Importar Registro de Compras y Ventas del SII
+   ==============================================================
+   Mismo mecanismo ya probado con archivos reales en Partida Doble: se lee
+   el detalle que cualquier facturador electrónico descarga del sitio del
+   SII, se arma cada documento solo (folio, RUT, fecha, montos) y se evita
+   duplicar si el mismo archivo, o uno que se traslapa, se vuelve a cargar.
+   Siempre se muestra la propuesta primero: nada se graba sin que la
+   persona la revise y le dé a "Registrar documentos". */
+var NOMBRES_TIPO_DOC_SII = {
+  "33": "Factura electrónica", "34": "Factura exenta", "39": "Boleta electrónica",
+  "41": "Boleta exenta", "46": "Factura de compra", "56": "Nota de débito", "61": "Nota de crédito",
+  "110": "Factura de exportación", "111": "Nota de débito de exportación", "112": "Nota de crédito de exportación"
+};
+var CODIGOS_NC_SII = { "61": true, "112": true };
+var CODIGOS_ND_SII = { "56": true, "111": true };
+
+var siiLote = { direccion: "compra", tipoDoc: "factura_compra", filas: [] };
+
+function partirLineaCsvSii(linea) {
+  return String(linea).replace(/\r$/, "").split(";").map(function (c) { return c.trim(); });
+}
+function indiceColumnasCsvSii(encabezado) {
+  var idx = {};
+  partirLineaCsvSii(encabezado).forEach(function (nombre, i) { idx[nombre.toLowerCase()] = i; });
+  return idx;
+}
+function colCsvSii(fila, idx, nombre) {
+  var i = idx[nombre.toLowerCase()];
+  return i === undefined ? "" : (fila[i] || "").trim();
+}
+function montoCsvSii(fila, idx, nombre) {
+  var t = colCsvSii(fila, idx, nombre).replace(/[^0-9-]/g, "");
+  return t === "" || t === "-" ? 0 : Number(t);
+}
+/* dd/mm/aaaa (como lo entrega el SII) a aaaa-mm-dd (como lo usa el programa). */
+function fechaSiiAIso(txt) {
+  var p = String(txt || "").split("/");
+  if (p.length !== 3) return "";
+  return p[2] + "-" + p[1].padStart(2, "0") + "-" + p[0].padStart(2, "0");
+}
+
+/* A qué tipo de documento del programa corresponde el código del SII.
+   dropdownFallback solo se usa en compras, para archivos viejos que no
+   traen su propia columna "Tipo Doc". */
+function tipoDocDesdeCodigoSii(codigo, direccion, dropdownFallback) {
+  var esNC = !!CODIGOS_NC_SII[codigo], esND = !!CODIGOS_ND_SII[codigo];
+  if (direccion === "venta") {
+    if (esNC) return "nc_emitida";
+    if (esND) return "nd_emitida";
+    if (codigo === "110") return "exportacion";
+    if (codigo === "39" || codigo === "41") return "boleta_venta";
+    return "factura_venta";
+  }
+  if (esNC) return "nc_recibida";
+  if (esND) return "nd_recibida";
+  if (codigo === "39" || codigo === "41") return "boleta_compra";
+  return dropdownFallback || "factura_compra";
+}
+
+/* Folio y RUT solos no bastan: una factura y una nota de crédito del mismo
+   proveedor pueden compartir folio porque son series distintas. Por eso el
+   tipo de documento también entra en la comparación. */
+function siiYaImportado(dir, tipoDocCod, rut, folio) {
+  return store.docs.some(function (d) {
+    return d.sii && d.sii.dir === dir && d.sii.tipoDocCod === tipoDocCod && d.sii.rut === rut && d.sii.folio === folio;
+  });
+}
+
+/* Del texto del CSV a filas listas para mostrar y corregir. No graba nada:
+   solo arma la propuesta de cada documento. */
+function procesarCsvComprasSii(texto, tipoDocDropdown) {
+  var lineas = String(texto || "").split(/\r?\n/).filter(function (l) { return l.trim() !== ""; });
+  if (lineas.length < 2) return { error: "El archivo no tiene filas de datos.", filas: [] };
+
+  var idx = indiceColumnasCsvSii(lineas[0]);
+  var faltan = ["RUT Proveedor", "Razon Social", "Folio", "Fecha Docto", "Monto Neto", "Monto Total"]
+    .filter(function (c) { return idx[c.toLowerCase()] === undefined; });
+  if (faltan.length) {
+    return { error: "No reconozco este archivo como detalle de compras del SII (faltan columnas: " + faltan.join(", ") + ").", filas: [] };
+  }
+  var tieneTipoDoc = idx["tipo doc"] !== undefined;
+
+  var filas = [];
+  for (var i = 1; i < lineas.length; i++) {
+    var f = partirLineaCsvSii(lineas[i]);
+    if (f.length < 2) continue;
+    var rut = colCsvSii(f, idx, "RUT Proveedor");
+    var folio = colCsvSii(f, idx, "Folio");
+    if (!rut || !folio) continue;
+
+    var exento = montoCsvSii(f, idx, "Monto Exento");
+    var neto = montoCsvSii(f, idx, "Monto Neto");
+    var ivaRec = montoCsvSii(f, idx, "Monto IVA Recuperable");
+    var ivaNoRec = montoCsvSii(f, idx, "Monto Iva No Recuperable") + montoCsvSii(f, idx, "IVA uso Comun");
+    var total = montoCsvSii(f, idx, "Monto Total");
+    var razon = colCsvSii(f, idx, "Razon Social");
+
+    var tipoDocCod = tieneTipoDoc ? colCsvSii(f, idx, "Tipo Doc") : null;
+    var tipoDoc = tipoDocDesdeCodigoSii(tipoDocCod, "compra", tipoDocDropdown);
+    var esNotaCredito = tieneTipoDoc ? !!CODIGOS_NC_SII[tipoDocCod] : tipoDocDropdown === "nc_recibida";
+
+    filas.push({
+      rut: rut, razon: razon, folio: folio,
+      fecha: fechaSiiAIso(colCsvSii(f, idx, "Fecha Docto")),
+      tipoDocCod: tipoDocCod, tipoDoc: tipoDoc,
+      tipoDocNombre: tipoDocCod ? (NOMBRES_TIPO_DOC_SII[tipoDocCod] || ("Documento tipo " + tipoDocCod)) : tipoById(tipoDoc).label,
+      esNotaCredito: esNotaCredito,
+      // El IVA no recuperable o de uso común no da crédito fiscal: por
+      // simplicidad queda sumado al costo, igual que en Partida Doble.
+      neto: neto + exento + ivaNoRec, iva: ivaRec, total: total,
+      afecto: ivaRec > 0, credito: ivaRec > 0, tieneIvaNoRec: ivaNoRec > 0,
+      categoria: detectarCategoria(razon) || "otros",
+      yaImportado: siiYaImportado("compra", tipoDocCod || tipoDocDropdown, rut, folio)
+    });
+  }
+  return { error: null, filas: filas, autoDetectado: tieneTipoDoc };
+}
+
+/* A diferencia de compras, el tipo de documento se lee de cada fila
+   (columna Tipo Doc), así que un mismo archivo puede traer facturas y
+   notas de crédito mezcladas y cada una queda con el sentido correcto. */
+function procesarCsvVentasSii(texto) {
+  var lineas = String(texto || "").split(/\r?\n/).filter(function (l) { return l.trim() !== ""; });
+  if (lineas.length < 2) return { error: "El archivo no tiene filas de datos.", filas: [] };
+
+  var idx = indiceColumnasCsvSii(lineas[0]);
+  var faltan = ["Rut cliente", "Razon Social", "Folio", "Fecha Docto", "Monto Neto", "Monto total"]
+    .filter(function (c) { return idx[c.toLowerCase()] === undefined; });
+  if (faltan.length) {
+    return { error: "No reconozco este archivo como detalle de ventas del SII (faltan columnas: " + faltan.join(", ") + ").", filas: [] };
+  }
+
+  var filas = [];
+  for (var i = 1; i < lineas.length; i++) {
+    var f = partirLineaCsvSii(lineas[i]);
+    if (f.length < 2) continue;
+    var rut = colCsvSii(f, idx, "Rut cliente");
+    var folio = colCsvSii(f, idx, "Folio");
+    if (!rut || !folio) continue;
+
+    var tipoDocCod = colCsvSii(f, idx, "Tipo Doc");
+    var exento = montoCsvSii(f, idx, "Monto Exento");
+    var neto = montoCsvSii(f, idx, "Monto Neto");
+    var iva = montoCsvSii(f, idx, "Monto IVA");
+
+    filas.push({
+      rut: rut, razon: colCsvSii(f, idx, "Razon Social"), folio: folio,
+      fecha: fechaSiiAIso(colCsvSii(f, idx, "Fecha Docto")),
+      tipoDocCod: tipoDocCod, tipoDoc: tipoDocDesdeCodigoSii(tipoDocCod, "venta"),
+      tipoDocNombre: NOMBRES_TIPO_DOC_SII[tipoDocCod] || ("Documento tipo " + tipoDocCod),
+      esNotaCredito: !!CODIGOS_NC_SII[tipoDocCod],
+      neto: neto + exento, iva: iva, total: montoCsvSii(f, idx, "Monto total"),
+      afecto: iva > 0,
+      yaImportado: siiYaImportado("venta", tipoDocCod, rut, folio)
+    });
+  }
+  return { error: null, filas: filas };
+}
+
+function leerCsvSii() {
+  var direccion = $("siiDireccion").value;
+  var tipoDoc = $("siiTipoDoc").value;
+  var archivo = $("siiArchivo").files && $("siiArchivo").files[0];
+  if (!archivo) {
+    $("siiAviso").innerHTML = '<div class="notice warn"><span class="title">Falta el archivo</span>Elige el CSV que descargaste del SII.</div>';
+    return;
+  }
+
+  var lector = new FileReader();
+  lector.onload = function () {
+    var texto = String(lector.result || "");
+    var r = direccion === "venta" ? procesarCsvVentasSii(texto) : procesarCsvComprasSii(texto, tipoDoc);
+    if (r.error) {
+      $("siiAviso").innerHTML = '<div class="notice bad"><span class="title">No se pudo leer</span>' + esc(r.error) + '</div>';
+      siiLote = { direccion: direccion, tipoDoc: tipoDoc, filas: [] };
+      renderImportarSii();
+      return;
+    }
+    if (!r.filas.length) {
+      $("siiAviso").innerHTML = '<div class="notice warn"><span class="title">Sin documentos</span>El archivo se leyó pero no encontré filas con RUT y folio.</div>';
+      siiLote = { direccion: direccion, tipoDoc: tipoDoc, filas: [] };
+      renderImportarSii();
+      return;
+    }
+    siiLote = { direccion: direccion, tipoDoc: tipoDoc, filas: r.filas, autoDetectado: !!r.autoDetectado };
+    $("siiAviso").innerHTML = '<div class="notice ok"><span class="title">Archivo leído</span>' +
+      r.filas.length + ' documentos encontrados. Revisa la categoría de cada uno antes de registrar.</div>';
+    renderImportarSii();
+  };
+  lector.onerror = function () {
+    $("siiAviso").innerHTML = '<div class="notice bad"><span class="title">No se pudo leer el archivo</span></div>';
+  };
+  lector.readAsText(archivo, "utf-8");
+}
+
+function renderImportarSii() {
+  var card = $("siiPropuestaCard");
+  if (!siiLote.filas || !siiLote.filas.length) { card.style.display = "none"; return; }
+  card.style.display = "block";
+
+  var pendientes = siiLote.filas.filter(function (f) { return !f.yaImportado; });
+  $("siiResumen").textContent = siiLote.filas.length + " documentos · " + pendientes.length + " por registrar" +
+    (siiLote.filas.length - pendientes.length ? " · " + (siiLote.filas.length - pendientes.length) + " ya importados" : "");
+
+  var esCompra = siiLote.direccion === "compra";
+  var opcionesCat = CATEGORIAS.map(function (c) { return { value: c.id, label: c.ico + " " + c.label }; });
+
+  var h = '<div class="table-wrap"><table><thead><tr>' +
+    "<th>Fecha</th><th>Tipo</th><th>" + (esCompra ? "Proveedor" : "Cliente") + "</th><th>Folio</th>" +
+    '<th class="num">Neto</th><th class="num">IVA</th><th class="num">Total</th>' +
+    (esCompra ? '<th style="width:200px">Categoría</th>' : "") + "<th></th>" +
+    "</tr></thead><tbody>";
+  siiLote.filas.forEach(function (f, i) {
+    h += "<tr" + (f.yaImportado ? ' style="opacity:.5"' : "") + ">" +
+      '<td class="num" style="font-size:12px;">' + esc(f.fecha) + "</td>" +
+      '<td><span class="badge ' + (f.esNotaCredito ? "warn" : "neutral") + '">' + esc(f.tipoDocNombre) + "</span></td>" +
+      "<td>" + esc(f.razon) + '<br /><span class="num" style="font-size:11px;color:var(--muted)">' + esc(f.rut) + "</span></td>" +
+      '<td class="cod">' + esc(f.folio) + "</td>" +
+      '<td class="num">' + money(f.neto) + "</td>" +
+      '<td class="num">' + (f.iva ? money(f.iva) : "—") + "</td>" +
+      '<td class="num">' + money(f.total) + "</td>" +
+      (esCompra ? "<td>" + (f.yaImportado
+        ? esc(catById(f.categoria).label)
+        : '<select data-sii-cat="' + i + '">' + opcionesCat.map(function (o) {
+            return '<option value="' + esc(o.value) + '"' + (o.value === f.categoria ? " selected" : "") + ">" + esc(o.label) + "</option>";
+          }).join("") + "</select>") + "</td>" : "") +
+      "<td>" + (f.yaImportado ? '<span class="badge neutral">ya importado</span>' : "") + "</td>" +
+      "</tr>";
+  });
+  h += "</tbody></table></div>";
+  if (esCompra && !siiLote.autoDetectado) {
+    h += '<div class="notice info"><span class="title">Este archivo no traía el tipo de documento por fila</span>Usé el tipo que elegiste arriba para todas las filas.</div>';
+  }
+  if (siiLote.filas.some(function (f) { return f.tieneIvaNoRec; })) {
+    h += '<div class="notice warn"><span class="title">Hay IVA no recuperable o de uso común</span>' +
+      "Por simplicidad lo sumé al monto del gasto, sin llevarlo a crédito fiscal. Si corresponde prorratearlo, ajusta ese documento a mano después de registrarlo.</div>";
+  }
+  $("siiTabla").innerHTML = h;
+
+  Array.prototype.forEach.call($("siiTabla").querySelectorAll("[data-sii-cat]"), function (sel) {
+    sel.addEventListener("change", function () {
+      siiLote.filas[Number(sel.getAttribute("data-sii-cat"))].categoria = sel.value;
+    });
+  });
+
+  $("siiRegistrar").disabled = !pendientes.length;
+}
+
+function registrarLoteSii() {
+  var direccion = siiLote.direccion;
+  var pendientes = siiLote.filas.filter(function (f) { return !f.yaImportado; });
+  if (!pendientes.length) { toast("No hay documentos nuevos para registrar"); return; }
+
+  var registrados = 0;
+  pendientes.forEach(function (fila) {
+    var cat = fila.categoria ? catById(fila.categoria) : null;
+    store.docs.unshift({
+      id: uid(), tipo: fila.tipoDoc, dir: direccion, signo: fila.esNotaCredito ? -1 : 1,
+      fecha: fila.fecha || todayISO(),
+      contraparte: fila.razon || fila.rut,
+      numero: fila.folio,
+      total: Math.round(fila.total), neto: Math.round(fila.neto), iva: Math.round(fila.iva || 0),
+      afecto: !!fila.afecto,
+      especial: null, litros: 0,
+      categoria: direccion === "compra" ? (fila.categoria || "otros") : null,
+      credito: direccion === "compra" ? !!fila.credito : false,
+      deducible: direccion === "compra" ? (cat ? cat.deducible : true) : false,
+      retenido: false, foto: null, creado: Date.now(),
+      sii: { dir: direccion, tipoDocCod: fila.tipoDocCod || fila.tipoDoc, rut: fila.rut, folio: fila.folio }
+    });
+    registrados++;
+  });
+
+  // Los documentos del SII no traen foto, así que el tope de espacio que
+  // protege el localStorage puede ser bastante más alto que el manual.
+  store.docs = store.docs.slice(0, 3000);
+  save();
+  llenarPeriodos();
+  refrescarTodo();
+  siiLote.filas.forEach(function (f) {
+    f.yaImportado = f.yaImportado || siiYaImportado(direccion, f.tipoDocCod || f.tipoDoc, f.rut, f.folio);
+  });
+  renderImportarSii();
+  toast(registrados + " documento" + (registrados === 1 ? "" : "s") + " registrado" + (registrados === 1 ? "" : "s"));
+}
+
 /* Tipos de documento.
    - signo -1 en las notas de crédito, porque restan de la operación original.
    - iva: si el documento normalmente lleva IVA (define el estado inicial de la casilla).
@@ -1849,14 +2178,16 @@ var DEFAULT_PERFIL = {
   // Impuestos especiales: rubros activos y si hace la primera venta del producto.
   rubros: [], primeraVentaBebidas: false,
   // Modo de uso: "contador" (vista técnica) o "empresario" (vista simple).
-  // Por defecto entra en contador: es el foco del programa hoy.
-  rol: "contador"
+  // Hoy el modo contador está desactivado (esRolContador() siempre da
+  // false), así que todos entran como empresario: es el foco del programa.
+  rol: "empresario"
 };
 
 /* Ajustes del cierre anual. Los llena el empresario en lenguaje simple o el
    contador con los nombres técnicos, pero es el MISMO dato: por eso los dos
    ven siempre el mismo número. */
 var CIERRE_VACIO = {
+  ingresosSinDocumentar: 0, gastosSinDocumentar: 0,
   perdidasAnteriores: 0, activoFijo: 0, remuneraciones: 0, capacitacion: 0,
   donaciones: 0, ppmRealPagado: 0, otrosIngresosDueno: 0, retirosDueno: 0, usarIncentivoAhorro: false,
   // Gastos rechazados, separados según cómo los trata el Art. 21:
@@ -1872,6 +2203,16 @@ var CIERRE_VACIO = {
 
 /* Cada ajuste, con las dos redacciones del mismo campo. */
 var CAMPOS_CIERRE = [
+  { id: "ingresosSinDocumentar", ico: "🧾",
+    simple: "¿Tuviste ventas de este año que no registraste como documento? (por ejemplo, si recién empiezas a usar la app y ya llevas meses vendiendo)",
+    tecnico: "Ingresos del ejercicio no incorporados al registro de documentos",
+    ayudaSimple: "Si ya fuiste registrando cada venta como documento, deja esto en cero: el programa ya las sumó solas. Escribe acá solo lo que vendiste y NO alcanzaste a cargar uno por uno — por ejemplo, si instalaste la app a mitad de año.",
+    ayudaTecnico: "Se suma directo a los ingresos del ejercicio calculados desde el registro de documentos, para completar periodos sin cobertura documental." },
+  { id: "gastosSinDocumentar", ico: "🧾",
+    simple: "¿Tuviste gastos de este año que no registraste como documento?",
+    tecnico: "Gastos deducibles del ejercicio no incorporados al registro de documentos",
+    ayudaSimple: "Igual que arriba, pero con tus gastos: solo lo que gastaste y no llegaste a cargar como documento.",
+    ayudaTecnico: "Se suma directo a los gastos deducibles del ejercicio calculados desde el registro de documentos." },
   { id: "perdidasAnteriores", ico: "📉",
     simple: "¿Tu empresa perdió plata en años anteriores?",
     tecnico: "Pérdidas tributarias de ejercicios anteriores",
@@ -3014,6 +3355,13 @@ function calcRenta(ano) {
   // --- Ajustes del cierre anual ---
   var aj = cierreDe(ano);
   r.ajustes = aj;
+  // Completa periodos sin documentos registrados (ej. recién instalaste la
+  // app a mitad de año): se suma sobre lo que ya aportaron los documentos,
+  // nunca lo reemplaza, para no perder lo que sí quedó cargado uno por uno.
+  r.ingresosSinDocumentar = Number(aj.ingresosSinDocumentar) || 0;
+  r.gastosSinDocumentar = Number(aj.gastosSinDocumentar) || 0;
+  r.ingresos += r.ingresosSinDocumentar;
+  r.gastos += r.gastosSinDocumentar;
   if (Number(aj.ppmRealPagado) > 0) {
     r.ppmEstimado = r.ppmPagado;
     r.ppmPagado = Number(aj.ppmRealPagado);
@@ -3841,8 +4189,9 @@ function renderIva() {
     h += '<div class="sep"></div>';
     h += '<div class="r"><span>ILA recargado en tus ventas</span><span class="v">' + money(r.ilaDebito) + '</span></div>';
     if (r.ilaCompraBruta > 0) {
-      h += '<div class="r"><span style="font-size:11.5px;">↳ recuperas ' + pctTxt(r.proporcionIla * 100) +
-        ' de lo pagado en compras (' + pctTxt(r.proporcionIla * 100) + ' de tus ventas de bebidas fue con factura, a otro negocio)</span><span class="v" style="font-size:11.5px;">&nbsp;</span></div>';
+      var pctIlaTxt = (r.proporcionIla * 100).toFixed(1).replace(".", ",") + "%";
+      h += '<div class="r"><span style="font-size:11.5px;">↳ recuperas ' + pctIlaTxt +
+        ' de lo pagado en compras (' + pctIlaTxt + ' de tus ventas de bebidas fue con factura, a otro negocio)</span><span class="v" style="font-size:11.5px;">&nbsp;</span></div>';
       h += '<div class="r"><span>ILA soportado en tus compras</span><span class="v">−' + money(r.ilaCredito) + '</span></div>';
       if (r.ilaCosto > 0) h += '<div class="r"><span style="font-size:11.5px;">↳ el resto (' + money(r.ilaCosto) + ') queda como costo, no se declara</span><span class="v" style="font-size:11.5px;">&nbsp;</span></div>';
     }
@@ -5339,6 +5688,8 @@ function aplicarEspecial() {
 function abrirModal() {
   fotoData = null;
   $("thumb").style.display = "none";
+  $("iaLecturaBox").innerHTML = "";
+  $("iaLecturaFallback").style.display = "none";
   $("camInput").value = "";
   $("fileInput").value = "";
   $("dFecha").value = todayISO();
@@ -5471,7 +5822,9 @@ function guardarDoc() {
     retenido: (t.id === "honorarios_emitida") ? $("dRetenido").checked : false,
     foto: fotoData, creado: Date.now()
   });
-  store.docs = store.docs.slice(0, 400);
+  // Mismo tope que la carga masiva del SII: si antes lo subiste por lote,
+  // agregar un documento a mano no debe truncarte lo que ya quedó registrado.
+  store.docs = store.docs.slice(0, 3000);
   save();
   cerrarModal();
   llenarPeriodos();
@@ -5522,6 +5875,7 @@ function leerArchivo(input) {
       $("thumbImg").style.display = "block";
       $("thumbCap").textContent = "Foto adjunta. Escribe abajo el proveedor y el monto que aparecen en el documento.";
       $("thumb").style.display = "block";
+      if (fotoData) intentarLeerConIA(fotoData);
     };
     img.onerror = function () {
       fotoData = null;
@@ -5532,6 +5886,47 @@ function leerArchivo(input) {
     img.src = ev.target.result;
   };
   reader.readAsDataURL(f);
+}
+
+/* Le pide a la función de Supabase que lea la foto con IA y precarga el
+   formulario con lo que encontró. Nunca guarda nada por su cuenta: la
+   persona siempre revisa y corrige antes de darle a "Guardar documento".
+   Si la función todavía no está desplegada, o falla por lo que sea, se
+   cae de vuelta al modo manual de siempre, sin mostrar un error feo. */
+function intentarLeerConIA(dataUrl) {
+  if (!sb || !sb.functions) { $("iaLecturaFallback").style.display = "block"; return; }
+  $("iaLecturaFallback").style.display = "none";
+  $("iaLecturaBox").innerHTML = '<div class="notice info"><span class="title">🔎 Leyendo el documento…</span>Un momento, esto no debería demorar más de unos segundos.</div>';
+
+  sb.functions.invoke("LEER-DOCUMENTO", { body: { imagen: dataUrl } }).then(function (r) {
+    if (r.error || !r.data || !r.data.ok || !r.data.leido) {
+      $("iaLecturaBox").innerHTML = "";
+      $("iaLecturaFallback").style.display = "block";
+      return;
+    }
+    var d = r.data.leido;
+    var huboDatos = false;
+    if (d.razon_social) { $("dContraparte").value = d.razon_social; huboDatos = true; }
+    if (d.folio) { $("dNumero").value = d.folio; huboDatos = true; }
+    if (d.fecha && /^\d{4}-\d{2}-\d{2}$/.test(d.fecha)) { $("dFecha").value = d.fecha; huboDatos = true; }
+    if (typeof d.monto_total === "number" && d.monto_total > 0) {
+      $("dTotal").value = d.monto_total;
+      $("dAfecto").checked = typeof d.monto_iva === "number" && d.monto_iva > 0;
+      huboDatos = true;
+      actualizarPreview();
+    }
+    if (!huboDatos) {
+      $("iaLecturaBox").innerHTML = '<div class="notice warn"><span class="title">No logré leer la foto con claridad</span>Completa los datos tú, como siempre.</div>';
+      return;
+    }
+    var confianzaBaja = d.confianza === "baja";
+    $("iaLecturaBox").innerHTML = '<div class="notice ' + (confianzaBaja ? "warn" : "ok") + '"><span class="title">' +
+      (confianzaBaja ? "⚠️ Leí la foto, pero con poca claridad" : "✅ Datos leídos de la foto") +
+      '</span>Revisa que estén bien antes de guardar' + (confianzaBaja ? " — esta vez no estoy muy seguro de haber leído todo bien" : "") + '.</div>';
+  }).catch(function () {
+    $("iaLecturaBox").innerHTML = "";
+    $("iaLecturaFallback").style.display = "block";
+  });
 }
 
 /* ==============================================================
@@ -5633,7 +6028,7 @@ var TABS = [
   { id: "impuestos", empresario: "Impuestos", contador: null },
   { id: "fuentes", empresario: null, contador: "Fuentes" },
   { id: "cierre", empresario: "Cierre anual", contador: "Propuesta de Renta" },
-  { id: "conciliacion", empresario: null, contador: "Conciliación" },
+  { id: "conciliacion", empresario: "Comparación", contador: "Conciliación" },
   { id: "stats", empresario: "Estadísticas", contador: null }
 ];
 
@@ -5678,7 +6073,10 @@ function renderTabs() {
 
 function goTo(tab) {
   if (!PANELS[tab]) return;
-  var rol = store.perfil.rol;
+  // Mismo criterio que renderTabs(): lo que decide el programa, no lo
+  // que haya quedado guardado en el perfil (evita que un tab se vea en
+  // el menú pero goTo lo rechace por un rol desincronizado).
+  var rol = esRolContador() ? "contador" : "empresario";
   var def = TABS.filter(function (t) { return t.id === tab; })[0];
   if (!def || !def[rol]) return;
 
@@ -5992,6 +6390,13 @@ function init() {
   $("realF22File").addEventListener("change", function () { adjuntarReal(this, "f22", "realF22Estado"); });
   $("realF29CamFile").addEventListener("change", function () { adjuntarReal(this, "f29", "realF29Estado"); });
   $("realF22CamFile").addEventListener("change", function () { adjuntarReal(this, "f22", "realF22Estado"); });
+
+  // Importar Registro de Compras y Ventas del SII
+  $("siiLeerBtn").addEventListener("click", leerCsvSii);
+  $("siiRegistrar").addEventListener("click", registrarLoteSii);
+  $("siiDireccion").addEventListener("change", function () {
+    $("siiTipoDocWrap").style.display = this.value === "venta" ? "none" : "";
+  });
 
   // Presupuestos por categoría
   $("presupuestoConfigBtn").addEventListener("click", function () {
